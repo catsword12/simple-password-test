@@ -1,0 +1,82 @@
+name: CI/CD Pipeline
+
+# Force Node.js 24 for all JavaScript actions to avoid deprecation warnings
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [24.x]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run linting
+      run: npm run lint
+
+    - name: Run tests
+      run: npm test
+
+    - name: Build application
+      run: npm run build
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-files
+        path: |
+          *.js
+          *.html
+          *.css
+          package*.json
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 24.x
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Deploy to production
+      run: |
+        echo "🚀 Starting deployment process..."
+        echo "Current Node.js version: $(node --version)"
+        echo "Current npm version: $(npm --version)"
+
+        # Example deployment commands - customize based on your hosting provider
+        # For Heroku: heroku git:remote -a your-app-name && git push heroku main
+        # For Vercel: npx vercel --prod
+        # For Netlify: npx netlify deploy --prod --dir=.
+
+        echo "✅ Deployment completed (placeholder - add your deployment commands)"

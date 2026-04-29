@@ -49,6 +49,20 @@ For development with auto-restart:
 npm run dev
 ```
 
+## CI/CD
+
+This project includes GitHub Actions workflow that:
+
+- ✅ Uses Node.js 24 to avoid the Node.js 20 deprecation warning
+- ✅ Forces JavaScript actions to run on Node.js 24 with `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`
+- ✅ Runs automated tests, linting, and builds on every push/PR
+- ✅ Includes deployment placeholder for production hosting
+
+The workflow addresses the GitHub Actions Node.js 20 deprecation by:
+- Using `actions/checkout@v4` and `actions/setup-node@v4` with Node.js 24
+- Setting the `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` environment variable
+- Ensuring all JavaScript-based actions run on the supported Node.js version
+
 ## Deployment
 
 To deploy to multiple computers, you can:
