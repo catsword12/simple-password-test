@@ -86,7 +86,7 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    const socket = io();
+    let socket = null;
 
     const loginCard = document.getElementById('loginCard');
     const gameCard = document.getElementById('gameCard');
@@ -114,6 +114,32 @@
       loginMessage.textContent = text;
       loginMessage.className = `message ${type}`;
     };
+
+    try {
+      socket = io();
+    } catch (error) {
+      console.error('Socket.IO initialization failed', error);
+      setMessage('Unable to connect to the server. Start the app with npm start and open http://localhost:3000', 'error');
+    }
+
+    // Check server connectivity on page load
+    const checkServerConnectivity = async () => {
+      try {
+        const response = await fetch('/', { method: 'HEAD' });
+        if (response.ok) {
+          if (!socket || !socket.connected) {
+            setMessage('Server is running but WebSocket connection failed. Refresh the page.', 'error');
+          }
+        } else {
+          setMessage('Server is not responding. Start the app with npm start and open http://localhost:3000', 'error');
+        }
+      } catch (error) {
+        setMessage('Cannot reach the server. Start the app with npm start and open http://localhost:3000', 'error');
+      }
+    };
+
+    // Run connectivity check after a short delay to allow Socket.IO to attempt connection
+    setTimeout(checkServerConnectivity, 1000);
 
     const renderPlayers = (players) => {
       playerList.innerHTML = players.length
@@ -168,70 +194,95 @@
     };
 
     const startGame = () => {
-      if (!currentUser || gameActive) return;
+      if (!socket || !currentUser || gameActive) return;
       socket.emit('startGame');
     };
 
     const submitScore = () => {
-      if (!currentUser) return;
+      if (!socket || !currentUser) {
+        setMessage('Cannot submit score because the server is not connected.', 'error');
+        return;
+      }
       socket.emit('submitScore', { score: currentScore });
     };
 
     // Socket event listeners
-    socket.on('registerSuccess', (data) => {
-      setMessage(data.message, 'success');
-    });
-
-    socket.on('registerError', (data) => {
-      setMessage(data.message, 'error');
-    });
-
-    socket.on('loginSuccess', (data) => {
-      showGameView(data.username);
-      setMessage(`Welcome back, ${data.username}!`, 'success');
-    });
-
-    socket.on('loginError', (data) => {
-      setMessage(data.message, 'error');
-    });
-
-    socket.on('playersUpdate', (players) => {
-      renderPlayers(players);
-    });
-
-    socket.on('leaderboardUpdate', (scores) => {
-      renderLeaderboard(scores);
-    });
-
-    socket.on('gameStarted', () => {
-      gameActive = true;
-      remainingSeconds = 10;
-      currentScore = 0;
-      timerValue.textContent = String(remainingSeconds);
-      scoreValue.textContent = String(currentScore);
-      startButton.disabled = true;
-      clickButton.classList.remove('hidden');
-      submitButton.classList.add('hidden');
-      setMessage('Click the button as fast as you can!', 'info');
-
-      gameTimer = setInterval(() => {
-        remainingSeconds -= 1;
-        timerValue.textContent = String(remainingSeconds);
-        if (remainingSeconds <= 0) {
-          finishGame();
+    if (socket) {
+      socket.on('connect', () => {
+        if (!currentUser) {
+          setMessage('Connected to the server. Enter credentials to log in or register.', 'success');
         }
-      }, 1000);
-    });
+      });
 
-    socket.on('scoreSubmitted', () => {
-      submitButton.classList.add('hidden');
-      startButton.disabled = false;
-      setMessage('Score submitted! You can start another match.', 'success');
-    });
+      socket.on('connect_error', () => {
+        setMessage('Unable to connect to server. Start the app with npm start and open http://localhost:3000', 'error');
+      });
+
+      socket.on('disconnect', () => {
+        if (!currentUser) {
+          setMessage('Disconnected from server. Refresh the page and ensure the backend is running.', 'error');
+        }
+      });
+
+      socket.on('registerSuccess', (data) => {
+        setMessage(data.message, 'success');
+      });
+
+      socket.on('registerError', (data) => {
+        setMessage(data.message, 'error');
+      });
+
+      socket.on('loginSuccess', (data) => {
+        showGameView(data.username);
+        setMessage(`Welcome back, ${data.username}!`, 'success');
+      });
+
+      socket.on('loginError', (data) => {
+        setMessage(data.message, 'error');
+      });
+
+      socket.on('playersUpdate', (players) => {
+        renderPlayers(players);
+      });
+
+      socket.on('leaderboardUpdate', (scores) => {
+        renderLeaderboard(scores);
+      });
+
+      socket.on('gameStarted', () => {
+        gameActive = true;
+        remainingSeconds = 10;
+        currentScore = 0;
+        timerValue.textContent = String(remainingSeconds);
+        scoreValue.textContent = String(currentScore);
+        startButton.disabled = true;
+        clickButton.classList.remove('hidden');
+        submitButton.classList.add('hidden');
+        setMessage('Click the button as fast as you can!', 'info');
+
+        gameTimer = setInterval(() => {
+          remainingSeconds -= 1;
+          timerValue.textContent = String(remainingSeconds);
+          if (remainingSeconds <= 0) {
+            finishGame();
+          }
+        }, 1000);
+      });
+
+      socket.on('scoreSubmitted', () => {
+        submitButton.classList.add('hidden');
+        startButton.disabled = false;
+        setMessage('Score submitted! You can start another match.', 'success');
+      });
+    } else {
+      setMessage('Cannot connect to server. Start the backend with npm start and open http://localhost:3000', 'error');
+    }
 
     // Send heartbeat every 10 seconds to stay active
     setInterval(() => {
-      socket.emit('heartbeat');
+      if (socket) {
+        socket.emit('heartbeat');
+      }
     }, 10000);
 
     // Event listeners
@@ -243,6 +294,10 @@
         setMessage('Username and password are required.', 'error');
         return;
       }
+      if (!socket) {
+        setMessage('Cannot connect to the server. Start the app with npm start and open http://localhost:3000', 'error');
+        return;
+      }
       socket.emit('login', { username, password });
     });
 
@@ -251,6 +306,10 @@
       const password = passwordInput.value;
       if (!username || !password) {
         setMessage('Enter a username and password to register.', 'error');
+        return;
+      }
+      if (!socket) {
+        setMessage('Cannot connect to the server. Start the app with npm start and open http://localhost:3000', 'error');
         return;
       }
       socket.emit('register', { username, password });
