@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Password Saver</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header>
+      <h1>Password Saver</h1>
+      <p>Save your account information locally in the browser.</p>
+    </header>
+
+    <section class="card">
+      <form id="passwordForm">
+        <div class="field">
+          <label for="siteName">Site / App</label>
+          <input id="siteName" type="text" placeholder="e.g. Gmail" required>
+        </div>
+
+        <div class="field">
+          <label for="userName">Username / Email</label>
+          <input id="userName" type="text" placeholder="e.g. you@example.com" required>
+        </div>
+
+        <div class="field">
+          <label for="passwordValue">Password</label>
+          <input id="passwordValue" type="password" placeholder="Enter password" required>
+        </div>
+
+        <div class="actions">
+          <button type="submit">Save Password</button>
+          <button id="clearAll" type="button" class="secondary">Clear All</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card saved-list">
+      <h2>Saved Entries</h2>
+      <ul id="entryList"></ul>
+    </section>
+  </div>
+
+  <script>
+    const form = document.getElementById('passwordForm');
+    const entryList = document.getElementById('entryList');
+    const clearAll = document.getElementById('clearAll');
+    const STORAGE_KEY = 'passwordSaverEntries';
+
+    const loadEntries = () => JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    const saveEntries = (entries) => localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+
+    const renderEntries = () => {
+      const entries = loadEntries();
+      entryList.innerHTML = entries.length
+        ? entries.map((entry, index) => `
+          <li>
+            <div>
+              <strong>${entry.site}</strong>
+              <span>${entry.username}</span>
+            </div>
+            <div class="entry-password">${entry.password}</div>
+            <button class="remove-btn" data-index="${index}">Delete</button>
+          </li>
+        `).join('')
+        : '<li class="empty">No saved passwords yet.</li>';
+    };
+
+    const clearForm = () => {
+      form.reset();
+      document.getElementById('siteName').focus();
+    };
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const entries = loadEntries();
+      const site = document.getElementById('siteName').value.trim();
+      const username = document.getElementById('userName').value.trim();
+      const password = document.getElementById('passwordValue').value;
+
+      if (!site || !username || !password) return;
+
+      entries.push({ site, username, password, savedAt: new Date().toISOString() });
+      saveEntries(entries);
+      renderEntries();
+      clearForm();
+    });
+
+    entryList.addEventListener('click', (event) => {
+      if (!event.target.matches('.remove-btn')) return;
+      const index = Number(event.target.dataset.index);
+      const entries = loadEntries();
+      entries.splice(index, 1);
+      saveEntries(entries);
+      renderEntries();
+    });
+
+    clearAll.addEventListener('click', () => {
+      if (!confirm('Remove all saved entries?')) return;
+      saveEntries([]);
+      renderEntries();
+    });
+
+    renderEntries();
+  </script>
+</body>
+</html>
