@@ -3,107 +3,295 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Password Saver</title>
+  <title>Simple Multiplayer Game</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="app-shell">
     <header>
-      <h1>Password Saver</h1>
-      <p>Save your account information locally in the browser.</p>
+      <h1>Simple Multiplayer Game</h1>
+      <p>Log in with a username and password, then compete in a quick click race.</p>
     </header>
 
-    <section class="card">
-      <form id="passwordForm">
-        <div class="field">
-          <label for="siteName">Site / App</label>
-          <input id="siteName" type="text" placeholder="e.g. Gmail" required>
+    <main>
+      <section class="card" id="loginCard">
+        <h2>Sign In / Register</h2>
+        <form id="loginForm">
+          <div class="field">
+            <label for="username">Username</label>
+            <input id="username" type="text" autocomplete="username" placeholder="Enter a username" required>
+          </div>
+
+          <div class="field">
+            <label for="password">Password</label>
+            <input id="password" type="password" autocomplete="current-password" placeholder="Enter a password" required>
+          </div>
+
+          <div class="actions">
+            <button id="loginButton" type="submit">Log In</button>
+            <button id="registerButton" type="button" class="secondary">Register</button>
+          </div>
+
+          <p class="message" id="loginMessage">You can register a new account and log in from here.</p>
+        </form>
+      </section>
+
+      <section class="card hidden" id="gameCard">
+        <div class="topbar">
+          <div>
+            <span>Logged in as</span>
+            <strong id="currentPlayer"></strong>
+          </div>
+          <button id="logoutButton" class="secondary">Logout</button>
         </div>
 
-        <div class="field">
-          <label for="userName">Username / Email</label>
-          <input id="userName" type="text" placeholder="e.g. you@example.com" required>
+        <div class="panels">
+          <div class="panel">
+            <h3>Players</h3>
+            <ul id="playerList"></ul>
+          </div>
+
+          <div class="panel">
+            <h3>Leaderboard</h3>
+            <ul id="leaderboard"></ul>
+          </div>
         </div>
 
-        <div class="field">
-          <label for="passwordValue">Password</label>
-          <input id="passwordValue" type="password" placeholder="Enter password" required>
-        </div>
+        <div class="game-panel">
+          <h2>Click Race</h2>
+          <p>Click the button as fast as you can for 10 seconds and submit your score.</p>
 
-        <div class="actions">
-          <button type="submit">Save Password</button>
-          <button id="clearAll" type="button" class="secondary">Clear All</button>
-        </div>
-      </form>
-    </section>
+          <div class="status-row">
+            <div class="status-card">
+              <span>Time left</span>
+              <strong id="timerValue">10</strong>
+            </div>
+            <div class="status-card">
+              <span>Score</span>
+              <strong id="scoreValue">0</strong>
+            </div>
+          </div>
 
-    <section class="card saved-list">
-      <h2>Saved Entries</h2>
-      <ul id="entryList"></ul>
-    </section>
+          <div class="game-actions">
+            <button id="startButton" class="start-btn">Start Match</button>
+            <button id="clickButton" class="click-btn hidden">Click!</button>
+            <button id="submitButton" class="secondary hidden">Submit Score</button>
+          </div>
+
+          <p class="hint">Tip: You can create multiple accounts and see them in the players list.</p>
+        </div>
+      </section>
+    </main>
   </div>
 
   <script>
-    const form = document.getElementById('passwordForm');
-    const entryList = document.getElementById('entryList');
-    const clearAll = document.getElementById('clearAll');
-    const STORAGE_KEY = 'passwordSaverEntries';
+    const ACCOUNTS_KEY = 'multiplayerGameAccounts';
+    const LEADERBOARD_KEY = 'multiplayerGameLeaderboard';
+    const ACTIVE_PLAYERS_KEY = 'multiplayerGameActive';
 
-    const loadEntries = () => JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-    const saveEntries = (entries) => localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+    const loginCard = document.getElementById('loginCard');
+    const gameCard = document.getElementById('gameCard');
+    const loginForm = document.getElementById('loginForm');
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+    const loginMessage = document.getElementById('loginMessage');
+    const currentPlayerLabel = document.getElementById('currentPlayer');
+    const playerList = document.getElementById('playerList');
+    const leaderboard = document.getElementById('leaderboard');
+    const logoutButton = document.getElementById('logoutButton');
+    const startButton = document.getElementById('startButton');
+    const clickButton = document.getElementById('clickButton');
+    const submitButton = document.getElementById('submitButton');
+    const timerValue = document.getElementById('timerValue');
+    const scoreValue = document.getElementById('scoreValue');
 
-    const renderEntries = () => {
-      const entries = loadEntries();
-      entryList.innerHTML = entries.length
-        ? entries.map((entry, index) => `
-          <li>
-            <div>
-              <strong>${entry.site}</strong>
-              <span>${entry.username}</span>
-            </div>
-            <div class="entry-password">${entry.password}</div>
-            <button class="remove-btn" data-index="${index}">Delete</button>
-          </li>
-        `).join('')
-        : '<li class="empty">No saved passwords yet.</li>';
+    let currentUser = null;
+    let gameTimer = null;
+    let remainingSeconds = 10;
+    let currentScore = 0;
+    let gameActive = false;
+
+    const loadJson = (key, fallback) => {
+      try {
+        return JSON.parse(localStorage.getItem(key)) || fallback;
+      } catch {
+        return fallback;
+      }
     };
 
-    const clearForm = () => {
-      form.reset();
-      document.getElementById('siteName').focus();
+    const saveJson = (key, value) => localStorage.setItem(key, JSON.stringify(value));
+
+    const getAccounts = () => loadJson(ACCOUNTS_KEY, []);
+    const getLeaderboard = () => loadJson(LEADERBOARD_KEY, []);
+    const getActivePlayers = () => loadJson(ACTIVE_PLAYERS_KEY, []);
+
+    const setMessage = (text, type = 'info') => {
+      loginMessage.textContent = text;
+      loginMessage.className = `message ${type}`;
     };
 
-    form.addEventListener('submit', (event) => {
+    const renderPlayers = () => {
+      const accounts = getAccounts();
+      const activePlayers = getActivePlayers();
+      playerList.innerHTML = accounts.length
+        ? accounts.map((account) => {
+            const active = activePlayers.find((player) => player.username === account.username);
+            const status = active ? 'Online' : 'Offline';
+            return `\n              <li>\n                <span>${account.username}</span>\n                <strong>${status}</strong>\n              </li>`;
+          }).join('')
+        : '<li class="empty">No saved players yet.</li>';
+    };
+
+    const renderLeaderboard = () => {
+      const scores = getLeaderboard();
+      leaderboard.innerHTML = scores.length
+        ? scores.slice(0, 8).map((entry) => `\n            <li>\n              <span>${entry.username}</span>\n              <strong>${entry.score}</strong>\n            </li>`).join('')
+        : '<li class="empty">No scores yet.</li>';
+    };
+
+    const updateActivePlayer = () => {
+      const activePlayers = getActivePlayers();
+      const existingIndex = activePlayers.findIndex((entry) => entry.username === currentUser.username);
+      const updatedPlayer = { username: currentUser.username, lastSeen: Date.now() };
+
+      if (existingIndex >= 0) {
+        activePlayers[existingIndex] = updatedPlayer;
+      } else {
+        activePlayers.push(updatedPlayer);
+      }
+      saveJson(ACTIVE_PLAYERS_KEY, activePlayers);
+    };
+
+    const showGameView = () => {
+      loginCard.classList.add('hidden');
+      gameCard.classList.remove('hidden');
+      currentPlayerLabel.textContent = currentUser.username;
+      renderPlayers();
+      renderLeaderboard();
+    };
+
+    const showLoginView = () => {
+      currentUser = null;
+      loginCard.classList.remove('hidden');
+      gameCard.classList.add('hidden');
+      usernameInput.value = '';
+      passwordInput.value = '';
+      setMessage('Enter credentials to log in or register a new account.');
+      timerValue.textContent = '10';
+      scoreValue.textContent = '0';
+      clickButton.classList.add('hidden');
+      submitButton.classList.add('hidden');
+      startButton.disabled = false;
+    };
+
+    const registerAccount = (username, password) => {
+      const accounts = getAccounts();
+      if (accounts.some((account) => account.username === username)) {
+        setMessage('Username already exists. Pick another one.', 'error');
+        return false;
+      }
+
+      accounts.push({ username, password });
+      saveJson(ACCOUNTS_KEY, accounts);
+      setMessage('Registration successful! You can now log in.', 'success');
+      return true;
+    };
+
+    const loginAccount = (username, password) => {
+      const accounts = getAccounts();
+      const account = accounts.find((entry) => entry.username === username && entry.password === password);
+      if (!account) {
+        setMessage('Invalid username or password. Try again.', 'error');
+        return false;
+      }
+
+      currentUser = account;
+      updateActivePlayer();
+      setMessage(`Welcome back, ${username}!`, 'success');
+      showGameView();
+      return true;
+    };
+
+    const finishGame = () => {
+      gameActive = false;
+      clearInterval(gameTimer);
+      clickButton.classList.add('hidden');
+      submitButton.classList.remove('hidden');
+      startButton.disabled = true;
+      setMessage('Game over! Submit your score to add it to the leaderboard.', 'success');
+    };
+
+    const startGame = () => {
+      if (!currentUser) return;
+      gameActive = true;
+      remainingSeconds = 10;
+      currentScore = 0;
+      timerValue.textContent = String(remainingSeconds);
+      scoreValue.textContent = String(currentScore);
+      startButton.disabled = true;
+      clickButton.classList.remove('hidden');
+      submitButton.classList.add('hidden');
+      setMessage('Click the button as fast as you can!', 'info');
+
+      gameTimer = setInterval(() => {
+        remainingSeconds -= 1;
+        timerValue.textContent = String(remainingSeconds);
+        if (remainingSeconds <= 0) {
+          finishGame();
+        }
+      }, 1000);
+    };
+
+    const submitScore = () => {
+      const leaderboardEntries = getLeaderboard();
+      leaderboardEntries.unshift({ username: currentUser.username, score: currentScore, time: Date.now() });
+      leaderboardEntries.sort((a, b) => b.score - a.score || a.time - b.time);
+      saveJson(LEADERBOARD_KEY, leaderboardEntries.slice(0, 20));
+      renderLeaderboard();
+      submitButton.classList.add('hidden');
+      startButton.disabled = false;
+      setMessage('Score submitted! You can start another match.', 'success');
+    };
+
+    loginForm.addEventListener('submit', (event) => {
       event.preventDefault();
-      const entries = loadEntries();
-      const site = document.getElementById('siteName').value.trim();
-      const username = document.getElementById('userName').value.trim();
-      const password = document.getElementById('passwordValue').value;
-
-      if (!site || !username || !password) return;
-
-      entries.push({ site, username, password, savedAt: new Date().toISOString() });
-      saveEntries(entries);
-      renderEntries();
-      clearForm();
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value;
+      if (!username || !password) {
+        setMessage('Username and password are required.', 'error');
+        return;
+      }
+      loginAccount(username, password);
     });
 
-    entryList.addEventListener('click', (event) => {
-      if (!event.target.matches('.remove-btn')) return;
-      const index = Number(event.target.dataset.index);
-      const entries = loadEntries();
-      entries.splice(index, 1);
-      saveEntries(entries);
-      renderEntries();
+    document.getElementById('registerButton').addEventListener('click', () => {
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value;
+      if (!username || !password) {
+        setMessage('Enter a username and password to register.', 'error');
+        return;
+      }
+      registerAccount(username, password);
     });
 
-    clearAll.addEventListener('click', () => {
-      if (!confirm('Remove all saved entries?')) return;
-      saveEntries([]);
-      renderEntries();
+    logoutButton.addEventListener('click', () => {
+      showLoginView();
     });
 
-    renderEntries();
+    startButton.addEventListener('click', () => {
+      if (gameActive) return;
+      startGame();
+    });
+
+    clickButton.addEventListener('click', () => {
+      if (!gameActive) return;
+      currentScore += 1;
+      scoreValue.textContent = String(currentScore);
+    });
+
+    submitButton.addEventListener('click', submitScore);
+
+    showLoginView();
   </script>
 </body>
 </html>
