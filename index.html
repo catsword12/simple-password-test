@@ -10,7 +10,7 @@
   <div class="app-shell">
     <header>
       <h1>Simple Multiplayer Game</h1>
-      <p>Log in with a username and password, then compete in a quick click race.</p>
+      <p>Log in with a username and password, then compete in a quick click race with players from other computers.</p>
     </header>
 
     <main>
@@ -47,7 +47,7 @@
 
         <div class="panels">
           <div class="panel">
-            <h3>Players</h3>
+            <h3>Players Online</h3>
             <ul id="playerList"></ul>
           </div>
 
@@ -78,16 +78,15 @@
             <button id="submitButton" class="secondary hidden">Submit Score</button>
           </div>
 
-          <p class="hint">Tip: You can create multiple accounts and see them in the players list.</p>
+          <p class="hint">Tip: Multiple players can join from different computers and compete in real-time!</p>
         </div>
       </section>
     </main>
   </div>
 
+  <script src="/socket.io/socket.io.js"></script>
   <script>
-    const ACCOUNTS_KEY = 'multiplayerGameAccounts';
-    const LEADERBOARD_KEY = 'multiplayerGameLeaderboard';
-    const ACTIVE_PLAYERS_KEY = 'multiplayerGameActive';
+    const socket = io();
 
     const loginCard = document.getElementById('loginCard');
     const gameCard = document.getElementById('gameCard');
@@ -111,63 +110,36 @@
     let currentScore = 0;
     let gameActive = false;
 
-    const loadJson = (key, fallback) => {
-      try {
-        return JSON.parse(localStorage.getItem(key)) || fallback;
-      } catch {
-        return fallback;
-      }
-    };
-
-    const saveJson = (key, value) => localStorage.setItem(key, JSON.stringify(value));
-
-    const getAccounts = () => loadJson(ACCOUNTS_KEY, []);
-    const getLeaderboard = () => loadJson(LEADERBOARD_KEY, []);
-    const getActivePlayers = () => loadJson(ACTIVE_PLAYERS_KEY, []);
-
     const setMessage = (text, type = 'info') => {
       loginMessage.textContent = text;
       loginMessage.className = `message ${type}`;
     };
 
-    const renderPlayers = () => {
-      const accounts = getAccounts();
-      const activePlayers = getActivePlayers();
-      playerList.innerHTML = accounts.length
-        ? accounts.map((account) => {
-            const active = activePlayers.find((player) => player.username === account.username);
-            const status = active ? 'Online' : 'Offline';
-            return `\n              <li>\n                <span>${account.username}</span>\n                <strong>${status}</strong>\n              </li>`;
-          }).join('')
-        : '<li class="empty">No saved players yet.</li>';
+    const renderPlayers = (players) => {
+      playerList.innerHTML = players.length
+        ? players.map((player) => `
+            <li>
+              <span>${player.username}</span>
+              <strong>${player.status}</strong>
+            </li>`).join('')
+        : '<li class="empty">No players online.</li>';
     };
 
-    const renderLeaderboard = () => {
-      const scores = getLeaderboard();
+    const renderLeaderboard = (scores) => {
       leaderboard.innerHTML = scores.length
-        ? scores.slice(0, 8).map((entry) => `\n            <li>\n              <span>${entry.username}</span>\n              <strong>${entry.score}</strong>\n            </li>`).join('')
+        ? scores.slice(0, 8).map((entry) => `
+            <li>
+              <span>${entry.username}</span>
+              <strong>${entry.score}</strong>
+            </li>`).join('')
         : '<li class="empty">No scores yet.</li>';
     };
 
-    const updateActivePlayer = () => {
-      const activePlayers = getActivePlayers();
-      const existingIndex = activePlayers.findIndex((entry) => entry.username === currentUser.username);
-      const updatedPlayer = { username: currentUser.username, lastSeen: Date.now() };
-
-      if (existingIndex >= 0) {
-        activePlayers[existingIndex] = updatedPlayer;
-      } else {
-        activePlayers.push(updatedPlayer);
-      }
-      saveJson(ACTIVE_PLAYERS_KEY, activePlayers);
-    };
-
-    const showGameView = () => {
+    const showGameView = (username) => {
+      currentUser = username;
       loginCard.classList.add('hidden');
       gameCard.classList.remove('hidden');
-      currentPlayerLabel.textContent = currentUser.username;
-      renderPlayers();
-      renderLeaderboard();
+      currentPlayerLabel.textContent = username;
     };
 
     const showLoginView = () => {
@@ -182,34 +154,8 @@
       clickButton.classList.add('hidden');
       submitButton.classList.add('hidden');
       startButton.disabled = false;
-    };
-
-    const registerAccount = (username, password) => {
-      const accounts = getAccounts();
-      if (accounts.some((account) => account.username === username)) {
-        setMessage('Username already exists. Pick another one.', 'error');
-        return false;
-      }
-
-      accounts.push({ username, password });
-      saveJson(ACCOUNTS_KEY, accounts);
-      setMessage('Registration successful! You can now log in.', 'success');
-      return true;
-    };
-
-    const loginAccount = (username, password) => {
-      const accounts = getAccounts();
-      const account = accounts.find((entry) => entry.username === username && entry.password === password);
-      if (!account) {
-        setMessage('Invalid username or password. Try again.', 'error');
-        return false;
-      }
-
-      currentUser = account;
-      updateActivePlayer();
-      setMessage(`Welcome back, ${username}!`, 'success');
-      showGameView();
-      return true;
+      gameActive = false;
+      clearInterval(gameTimer);
     };
 
     const finishGame = () => {
@@ -222,7 +168,42 @@
     };
 
     const startGame = () => {
+      if (!currentUser || gameActive) return;
+      socket.emit('startGame');
+    };
+
+    const submitScore = () => {
       if (!currentUser) return;
+      socket.emit('submitScore', { score: currentScore });
+    };
+
+    // Socket event listeners
+    socket.on('registerSuccess', (data) => {
+      setMessage(data.message, 'success');
+    });
+
+    socket.on('registerError', (data) => {
+      setMessage(data.message, 'error');
+    });
+
+    socket.on('loginSuccess', (data) => {
+      showGameView(data.username);
+      setMessage(`Welcome back, ${data.username}!`, 'success');
+    });
+
+    socket.on('loginError', (data) => {
+      setMessage(data.message, 'error');
+    });
+
+    socket.on('playersUpdate', (players) => {
+      renderPlayers(players);
+    });
+
+    socket.on('leaderboardUpdate', (scores) => {
+      renderLeaderboard(scores);
+    });
+
+    socket.on('gameStarted', () => {
       gameActive = true;
       remainingSeconds = 10;
       currentScore = 0;
@@ -240,19 +221,20 @@
           finishGame();
         }
       }, 1000);
-    };
+    });
 
-    const submitScore = () => {
-      const leaderboardEntries = getLeaderboard();
-      leaderboardEntries.unshift({ username: currentUser.username, score: currentScore, time: Date.now() });
-      leaderboardEntries.sort((a, b) => b.score - a.score || a.time - b.time);
-      saveJson(LEADERBOARD_KEY, leaderboardEntries.slice(0, 20));
-      renderLeaderboard();
+    socket.on('scoreSubmitted', () => {
       submitButton.classList.add('hidden');
       startButton.disabled = false;
       setMessage('Score submitted! You can start another match.', 'success');
-    };
+    });
 
+    // Send heartbeat every 10 seconds to stay active
+    setInterval(() => {
+      socket.emit('heartbeat');
+    }, 10000);
+
+    // Event listeners
     loginForm.addEventListener('submit', (event) => {
       event.preventDefault();
       const username = usernameInput.value.trim();
@@ -261,7 +243,7 @@
         setMessage('Username and password are required.', 'error');
         return;
       }
-      loginAccount(username, password);
+      socket.emit('login', { username, password });
     });
 
     document.getElementById('registerButton').addEventListener('click', () => {
@@ -271,7 +253,7 @@
         setMessage('Enter a username and password to register.', 'error');
         return;
       }
-      registerAccount(username, password);
+      socket.emit('register', { username, password });
     });
 
     logoutButton.addEventListener('click', () => {
@@ -279,7 +261,6 @@
     });
 
     startButton.addEventListener('click', () => {
-      if (gameActive) return;
       startGame();
     });
 
